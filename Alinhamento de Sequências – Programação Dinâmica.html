@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AlinhamentoSequencia – Programação Dinâmica passo a passo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<style>
+  :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  body{background:#f6f7f9;color:#1e293b;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {useState,useMemo}=React;
+const html=htm.bind(React.createElement);
+
+/* ---- Tradução fiel do Java (construtor + optAlinhamento + obtemMatching) ---- */
+function build(X,Y,DELTA,MIS){
+  const alfabeto=[...new Set([...X,...Y])];
+  const x=[...X].map(c=>alfabeto.indexOf(c));
+  const y=[...Y].map(c=>alfabeto.indexOf(c));
+  const beta=alfabeto.map((a,p)=>alfabeto.map((b,q)=>p===q?0:MIS));
+  const m=x.length, n=y.length;
+  const grid=()=>Array.from({length:m+1},()=>Array(n+1).fill(null));
+  const opt=grid(), quem=grid();
+  for(let i=0;i<=m;i++){opt[i][0]=i*DELTA;quem[i][0]=2;}
+  for(let j=0;j<=n;j++){opt[0][j]=j*DELTA;quem[0][j]=3;}
+  const fill=[];
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++){
+    const b=beta[x[i-1]][y[j-1]];
+    const troca=b+opt[i-1][j-1];
+    const gapx=DELTA+opt[i-1][j];
+    const gapy=DELTA+opt[i][j-1];
+    let min=Math.min(troca,gapx), origem;
+    if(troca===min) origem=1; else origem=2;
+    min=Math.min(min,gapy);
+    if(gapy===min) origem=3;
+    opt[i][j]=min; quem[i][j]=origem;
+    fill.push({i,j,b,troca,gapx,gapy,min,origem});
+  }
+  const tb=[]; let i=m,j=n;
+  while(i>0||j>0){
+    const q=quem[i][j]; const t={i,j,q};
+    if(q===1){t.ax=X[i-1];t.ay=Y[j-1];i--;j--;}
+    else if(q===2){t.ax=X[i-1];t.ay='-';i--;}
+    else {t.ax='-';t.ay=Y[j-1];j--;}
+    tb.push(t);
+  }
+  return {X,Y,DELTA,MIS,m,n,opt,quem,fill,tb};
+}
+
+const ARROW={1:'↖',2:'↑',3:'←'};
+const Btn=({children,...p})=>html`<button ...${p} className=${"px-3 py-2 rounded-md text-sm font-medium border transition disabled:opacity-40 disabled:cursor-not-allowed "+(p.primary?"bg-slate-900 text-white border-slate-900 hover:bg-slate-700":"bg-white border-slate-300 hover:bg-slate-100")}>${children}</button>`;
+const Tag=({c,children})=>html`<span className=${"px-1.5 py-0.5 rounded mono text-xs "+c}>${children}</span>`;
+
+function App(){
+  const [f,setF]=useState({X:'AACAGTTACC',Y:'TAAGGTCA',D:1,M:1});
+  const [ap,setAp]=useState(f);
+  const [s,setS]=useState(0);
+  const [err,setErr]=useState('');
+  const M=useMemo(()=>build(ap.X,ap.Y,ap.D,ap.M),[ap]);
+  const F=M.fill.length, T=M.tb.length, last=F+T;
+
+  const gerar=()=>{
+    const X=f.X.trim().toUpperCase(), Y=f.Y.trim().toUpperCase();
+    if(!X||!Y) return setErr('Preencha as duas sequências.');
+    if(X.length>14||Y.length>14) return setErr('Use no máximo 14 caracteres por sequência.');
+    if(!(Number(f.D)>=0)||!(Number(f.M)>=0)) return setErr('Os custos devem ser números ≥ 0.');
+    setErr(''); setAp({X,Y,D:Number(f.D),M:Number(f.M)}); setS(0);
+  };
+
+  const cur = s>=1&&s<=F ? M.fill[s-1] : null;
+  const k = s>F ? s-F : 0;
+  const tcur = k>0 ? M.tb[k-1] : null;
+  const visited = new Set(M.tb.slice(0,k).map(t=>t.i+','+t.j));
+  const matching = M.tb.slice(0,k).filter(t=>t.q===1).map(t=>'('+t.i+','+t.j+')');
+  const ax=M.tb.slice(0,k).map(t=>t.ax).reverse().join('');
+  const ay=M.tb.slice(0,k).map(t=>t.ay).reverse().join('');
+
+  const cell=(i,j)=>{
+    const idx=(i-1)*M.n+j;
+    const border=i===0||j===0;
+    const shown=border||idx<=Math.min(s,F);
+    let cls='bg-white text-slate-800', tag='';
+    if(!shown) cls='bg-slate-50 text-slate-300';
+    if(border) cls='bg-slate-100 text-slate-600';
+    if(k>0&&visited.has(i+','+j)) cls='bg-emerald-200 text-emerald-950 font-semibold';
+    if(tcur&&tcur.i===i&&tcur.j===j) cls='bg-emerald-600 text-white font-bold ring-2 ring-emerald-900';
+    if(cur){
+      if(cur.i-1===i&&cur.j-1===j){cls='bg-sky-200 text-sky-950';tag='troca';}
+      else if(cur.i-1===i&&cur.j===j){cls='bg-violet-200 text-violet-950';tag='gapx';}
+      else if(cur.i===i&&cur.j-1===j){cls='bg-orange-200 text-orange-950';tag='gapy';}
+      else if(cur.i===i&&cur.j===j){cls='bg-yellow-300 text-yellow-950 font-bold ring-2 ring-yellow-600';tag='atual';}
+    }
+    return html`<td key=${j} className=${"relative w-12 h-12 md:w-14 md:h-14 text-center border border-slate-200 mono text-sm "+cls}>
+      <div>${shown?M.opt[i][j]:'?'}</div>
+      ${shown&&(!border||true)&&(i>0||j>0)&&!(i===0&&j===0)?html`<div className="absolute right-0.5 bottom-0 text-[10px] opacity-60">${ARROW[M.quem[i][j]]}</div>`:null}
+      ${tag?html`<div className="absolute left-0.5 top-0 text-[9px] opacity-70">${tag}</div>`:null}
+    </td>`;
+  };
+
+  return html`<div className="max-w-6xl mx-auto p-4 md:p-6">
+    <header className="mb-5">
+      <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Alinhamento de sequências por programação dinâmica</h1>
+      <p className="text-slate-600 mt-1 max-w-2xl">Execute passo a passo a classe <span className="mono">AlinhamentoSequencia</span>: o preenchimento de <span className="mono">opt</span> e <span className="mono">quem</span> em <span className="mono">optAlinhamento()</span> e a reconstrução em <span className="mono">obtemMatching()</span>.</p>
+    </header>
+
+    <section className="bg-white border border-slate-200 rounded-lg p-4 mb-5 grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+      ${[['X','Sequência X (linhas)','col-span-2 md:col-span-1'],['Y','Sequência Y (colunas)','col-span-2 md:col-span-1'],['D','Custo de gap (DELTA)',''],['M','Custo de troca (beta, se diferentes)','']].map(([key,label,sp])=>html`
+        <label key=${key} className=${"text-sm font-medium "+sp}>${label}
+          <input value=${f[key]} onChange=${e=>setF({...f,[key]:e.target.value})} className="mt-1 w-full border border-slate-300 rounded-md px-2 py-1.5 mono" />
+        </label>`)}
+      <${Btn} primary onClick=${gerar}>Gerar tabela e iniciar simulação<//>
+      ${err?html`<p className="col-span-full text-sm text-red-700">${err}</p>`:null}
+    </section>
+
+    <div className="grid lg:grid-cols-[1fr_380px] gap-5">
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex flex-wrap gap-2 mb-4 items-center">
+          <${Btn} onClick=${()=>setS(0)} disabled=${s===0}>Reset<//>
+          <${Btn} onClick=${()=>setS(s-1)} disabled=${s===0}>Passo anterior<//>
+          <${Btn} primary onClick=${()=>setS(s+1)} disabled=${s===last}>${s<F?'Próximo passo':s===F?'Executar obtemMatching()':'Próximo passo'}<//>
+          <${Btn} onClick=${()=>setS(F+1)} disabled=${s>F||T===0}>Ir para obtemMatching()<//>
+          <span className="text-xs text-slate-500 ml-auto">passo ${s} de ${last}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="border-collapse mx-auto">
+            <thead><tr>
+              <th className="w-12"></th><th className="mono text-xs text-slate-400 font-normal">j=0</th>
+              ${[...M.Y].map((c,j)=>html`<th key=${j} className="mono text-sm pb-1"><div className="text-xs text-slate-400 font-normal">j=${j+1}</div>${c}</th>`)}
+            </tr></thead>
+            <tbody>
+              ${Array.from({length:M.m+1},(_,i)=>html`<tr key=${i}>
+                <th className="mono text-sm pr-2 text-right whitespace-nowrap"><span className="text-xs text-slate-400 font-normal">i=${i} </span>${i>0?M.X[i-1]:''}</th>
+                ${Array.from({length:M.n+1},(_,j)=>cell(i,j))}
+              </tr>`)}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-4 text-xs items-center">
+          <${Tag} c="bg-yellow-300">opt[i][j] atual<//>
+          <${Tag} c="bg-sky-200">opt[i-1][j-1]<//>
+          <${Tag} c="bg-violet-200">opt[i-1][j]<//>
+          <${Tag} c="bg-orange-200">opt[i][j-1]<//>
+          <${Tag} c="bg-emerald-200">caminho do alinhamento<//>
+          <span className="text-slate-500">Setas: ↖ quem=1 · ↑ quem=2 · ← quem=3</span>
+        </div>
+      </section>
+
+      <aside className="bg-white border border-slate-200 rounded-lg p-4 text-sm space-y-3 self-start">
+        ${s===0?html`<div>
+          <h2 className="font-semibold text-base">Inicialização (construtor)</h2>
+          <p className="mt-1">Alfabeto mapeado para índices inteiros em <span className="mono">x</span> e <span className="mono">y</span>; <span className="mono">beta</span> vale 0 para símbolos iguais e ${M.MIS} para diferentes.</p>
+          <pre className="mono text-xs bg-slate-50 rounded p-2 mt-2 overflow-x-auto">m = ${M.m};  n = ${M.n};  DELTA = ${M.DELTA}
+for i: opt[i][0] = i * DELTA
+for j: opt[0][j] = j * DELTA</pre>
+          <p className="mt-2 text-slate-600">Clique em <b>Próximo passo</b> para começar os laços <span className="mono">for i</span> / <span className="mono">for j</span>.</p>
+        </div>`:null}
+
+        ${cur?html`<div>
+          <h2 className="font-semibold text-base">optAlinhamento: i = ${cur.i}, j = ${cur.j}</h2>
+          <p className="text-slate-600 mt-1">Comparando <span className="mono">X[${cur.i-1}]</span> = <b>${M.X[cur.i-1]}</b> com <span className="mono">Y[${cur.j-1}]</span> = <b>${M.Y[cur.j-1]}</b></p>
+          <div className="mono text-xs space-y-2 mt-3">
+            <div className="bg-sky-50 border border-sky-200 rounded p-2">troca = beta[x[i-1]][y[j-1]] + opt[i-1][j-1]<br/>= ${cur.b} + ${M.opt[cur.i-1][cur.j-1]} = <b>${cur.troca}</b></div>
+            <div className="bg-violet-50 border border-violet-200 rounded p-2">gapx = DELTA + opt[i-1][j]<br/>= ${M.DELTA} + ${M.opt[cur.i-1][cur.j]} = <b>${cur.gapx}</b></div>
+            <div className="bg-orange-50 border border-orange-200 rounded p-2">gapy = DELTA + opt[i][j-1]<br/>= ${M.DELTA} + ${M.opt[cur.i][cur.j-1]} = <b>${cur.gapy}</b></div>
+            <div className="bg-yellow-50 border border-yellow-300 rounded p-2">min = Math.min(troca, gapx, gapy) = <b>${cur.min}</b><br/>quem[${cur.i}][${cur.j}] = <b>${cur.origem}</b> ${cur.origem===1?'(troca/casamento)':cur.origem===2?'(gap em y: sobe)':'(gap em x: esquerda)'}<br/>opt[${cur.i}][${cur.j}] = ${cur.min}</div>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Empates: <span className="mono">troca</span> vence <span className="mono">gapx</span>, e <span className="mono">gapy</span> vence os dois.</p>
+        </div>`:null}
+
+        ${k>0?html`<div>
+          <h2 className="font-semibold text-base">obtemMatching: i = ${tcur.i}, j = ${tcur.j}</h2>
+          <p className="mono text-xs bg-slate-50 rounded p-2 mt-2">quem[${tcur.i}][${tcur.j}] = ${tcur.q}</p>
+          <p className="mt-2">${tcur.q===1?`case 1: adiciona Par(${tcur.i}, ${tcur.j}) ao matching (${tcur.ax} ↔ ${tcur.ay}); i-- e j--.`:tcur.q===2?`case 2: ${tcur.ax} em X fica sem par (gap em Y); i--.`:`case 3: ${tcur.ay} em Y fica sem par (gap em X); j--.`}</p>
+          <div className="mt-3">
+            <div className="text-xs text-slate-500 mb-1">Alinhamento (montado de trás para frente)</div>
+            <div className="mono text-lg tracking-widest bg-slate-50 rounded p-2 overflow-x-auto"><div>${ax}</div><div className="text-slate-400 text-xs">${[...ax].map((c,i)=>c!=='-'&&ay[i]!=='-'?(c===ay[i]?'|':'·'):' ').join('')}</div><div>${ay}</div></div>
+            <div className="text-xs mt-2">matching = [${matching.join(', ')}]</div>
+            ${k===T?html`<p className="mt-2 text-emerald-700 font-medium">Fim: i = 0 e j = 0. Custo ótimo = opt[${M.m}][${M.n}] = ${M.opt[M.m][M.n]}.</p>`:null}
+          </div>
+        </div>`:null}
+      </aside>
+    </div>
+
+    <p className="text-xs text-slate-500 mt-5 max-w-3xl">Nota: o laço não precisa de <span className="mono">x[0]</span> como sentinela aqui; <span className="mono">m</span> e <span className="mono">n</span> são os comprimentos das strings e o acesso é <span className="mono">x[i-1]</span>, <span className="mono">y[j-1]</span>.</p>
+  </div>`;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${App}/>`);
+</script>
+</body>
+</html>
